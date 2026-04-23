@@ -410,17 +410,28 @@ let lastEmitTime = 0;
 function doDraw(e) {
   if (!drawingFlag || !isDrawing) return;
   const pos = getPos(e);
-  const data = {
+
+  // Render locally with raw pixel coords for instant zero-lag feedback
+  const localData = {
     x0: lastX, y0: lastY, x1: pos.x, y1: pos.y,
     color: eraserMode ? '#ffffff' : currentColor,
     size: eraserMode ? currentSize * 3 : currentSize
   };
-  renderStroke(data);
+  renderStroke(localData);
 
   // Throttle socket emits to ~60fps — prevents flooding the server on mobile
   const now = Date.now();
   if (now - lastEmitTime >= 16) {
-    socket.emit('draw', data); // CS323: message passing — stroke sent to server
+    // Send NORMALIZED coords so all screen sizes render the stroke correctly
+    const n0 = toNorm(lastX, lastY);
+    const n1 = toNorm(pos.x, pos.y);
+    const netData = {
+      nx0: n0.x, ny0: n0.y,
+      nx1: n1.x, ny1: n1.y,
+      color: localData.color,
+      size:  localData.size
+    };
+    socket.emit('draw', netData); // CS323: message passing — normalized stroke to server
     lastEmitTime = now;
   }
 
@@ -430,10 +441,44 @@ function doDraw(e) {
 
 function endDraw() { drawingFlag = false; }
 
+// ── Coordinate normalization ───────────────────────────────────────────────────
+// Every stroke is stored and transmitted as fractions (0.0–1.0) of the canvas
+// dimensions. This means a stroke drawn in the centre on a 700px-wide desktop
+// canvas will also appear in the centre on a 320px-wide mobile canvas.
+//
+// toNorm()   → converts raw canvas px → { x: 0..1, y: 0..1 }
+// fromNorm() → converts { x: 0..1, y: 0..1 } → raw canvas px for this screen
+
+function toNorm(x, y) {
+  return {
+    x: canvas.width  > 0 ? x / canvas.width  : 0,
+    y: canvas.height > 0 ? y / canvas.height : 0
+  };
+}
+
+function fromNorm(nx, ny) {
+  return {
+    x: nx * canvas.width,
+    y: ny * canvas.height
+  };
+}
+
 function renderStroke(d) {
+  // d may come from history (normalized) or be a local raw stroke.
+  // If it has nx0 it's normalized; otherwise it's already in canvas px (local draw).
+  let x0, y0, x1, y1;
+  if (d.nx0 !== undefined) {
+    const p0 = fromNorm(d.nx0, d.ny0);
+    const p1 = fromNorm(d.nx1, d.ny1);
+    x0 = p0.x; y0 = p0.y;
+    x1 = p1.x; y1 = p1.y;
+  } else {
+    x0 = d.x0; y0 = d.y0;
+    x1 = d.x1; y1 = d.y1;
+  }
   ctx.beginPath();
-  ctx.moveTo(d.x0, d.y0);
-  ctx.lineTo(d.x1, d.y1);
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
   ctx.strokeStyle = d.color;
   ctx.lineWidth   = d.size;
   ctx.lineCap     = 'round';
