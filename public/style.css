@@ -497,13 +497,16 @@ input[type=text]:focus { border-color: var(--accent); }
   /* ── Game screen: single-column layout ── */
   #game {
     grid-template-columns: 1fr;
-    /* 4 rows: topbar | canvas | panel (optional) | tab bar */
     grid-template-rows: 52px 1fr auto 56px;
-    /* Use dvh so the layout fits under the mobile browser chrome.
-       Fall back to vh for older browsers. */
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
+    /* Prevent the whole game screen from scrolling on mobile */
+    overscroll-behavior: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
   }
 
   /* Topbar: compact */
@@ -527,20 +530,24 @@ input[type=text]:focus { border-color: var(--accent); }
 
   /* ── Canvas area ────────────────────────────────────────────────────────── */
   .canvas-wrap {
-    /* Fill all available height without overflowing */
     min-height: 0;
     overflow: hidden;
-    /* GPU-accelerated layer — reduces paint lag on mobile */
+    /* Prevent touch scroll from moving the canvas area */
+    overscroll-behavior: none;
+    touch-action: none;
+    /* GPU layer */
     will-change: transform;
   }
 
-  /* The canvas element itself is sized by JS (resizeCanvas).
-     Make sure it never overflows its container on mobile. */
+  /* Never let the canvas itself overflow or be scrolled into view */
   #drawing-canvas {
     max-width: 100%;
     max-height: 100%;
-    /* Remove border-radius on mobile to reclaim every pixel */
+    display: block;
     border-radius: 6px;
+    /* Prevent default touch scroll/zoom on canvas */
+    touch-action: none;
+    overscroll-behavior: none;
   }
 
   /* Toolbar: wrap, shrink swatches, stay above the canvas bottom edge */

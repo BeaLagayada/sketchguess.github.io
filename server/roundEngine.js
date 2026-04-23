@@ -25,7 +25,7 @@ const { getPublicState } = require('./gameState');
 const { getRandomWord } = require('./wordList');
 
 const ROUND_DURATION = 50; // seconds
-const ROUNDS_PER_GAME = 3;
+const ROUNDS_PER_GAME = 10;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

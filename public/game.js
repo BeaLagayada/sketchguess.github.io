@@ -316,21 +316,38 @@ function initCanvas() {
   canvas = document.getElementById('drawing-canvas');
   ctx = canvas.getContext('2d');
   resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+
+  // On mobile, the keyboard opening fires a window 'resize' event which would
+  // wipe the canvas. We only want to resize on a real orientation/layout change,
+  // not on a virtual-keyboard popup. Use visualViewport when available (modern
+  // mobile browsers) to detect actual screen size changes, falling back to a
+  // width-only check so a keyboard (which only shrinks height) never triggers it.
+  let lastResizeW = window.innerWidth;
+  function onResize() {
+    const newW = window.innerWidth;
+    // Only resize if the WIDTH changed (orientation change, window resize on desktop).
+    // Height-only changes are the virtual keyboard on mobile — ignore those.
+    if (Math.abs(newW - lastResizeW) > 10) {
+      lastResizeW = newW;
+      resizeCanvas(true); // true = preserve existing drawing
+    }
+  }
+  window.addEventListener('resize', onResize);
+
   buildToolbarUI();
   canvas.addEventListener('pointerdown', startDraw);
   canvas.addEventListener('pointermove', doDraw);
   canvas.addEventListener('pointerup', endDraw);
+  // Also end draw if pointer leaves the canvas
+  canvas.addEventListener('pointerleave', endDraw);
   socket.emit('request-history');
 }
 
-function resizeCanvas() {
+function resizeCanvas(preserve) {
   const wrap = document.getElementById('canvas-wrap');
   const wrapW = wrap.clientWidth;
   const wrapH = wrap.clientHeight;
 
-  // On mobile the wrap can be very short — use its real dimensions.
-  // Give 60px headroom for the floating toolbar at the bottom.
   const maxW = wrapW - 16;
   const maxH = wrapH - 60;
 
@@ -344,16 +361,32 @@ function resizeCanvas() {
     w = Math.round(h * (3 / 2));
   }
 
-  // Don't let canvas go below a usable minimum
   w = Math.max(w, 100);
   h = Math.max(h, 60);
+
+  // If dimensions haven't actually changed, do nothing — avoids unnecessary wipes
+  if (canvas.width === w && canvas.height === h) return;
+
+  // Save existing drawing as an ImageData snapshot before changing dimensions.
+  // Changing canvas.width or canvas.height always clears the canvas in all browsers.
+  let snapshot = null;
+  if (preserve && canvas.width > 0 && canvas.height > 0) {
+    try { snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch(e) {}
+  }
 
   canvas.width  = w;
   canvas.height = h;
   canvas.style.width  = w + 'px';
   canvas.style.height = h + 'px';
+
+  // Fill white first
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
+
+  // Restore the saved drawing on top of the white fill
+  if (snapshot) {
+    ctx.putImageData(snapshot, 0, 0);
+  }
 }
 
 function getPos(e) {
@@ -538,12 +571,10 @@ function triggerConfetti() {
 // Only active on mobile (≤700px). Tabs switch between canvas, leaderboard, chat.
 
 function switchMobileTab(tab) {
-  // Update tab button states
   document.querySelectorAll('.mobile-tab').forEach(btn => btn.classList.remove('active'));
   const activeBtn = document.getElementById('tab-' + tab);
   if (activeBtn) activeBtn.classList.add('active');
 
-  // Hide both panels first
   const left  = document.querySelector('.sidebar-left');
   const right = document.querySelector('.sidebar-right');
   if (left)  left.classList.remove('mobile-panel-active');
@@ -552,10 +583,17 @@ function switchMobileTab(tab) {
   if (tab === 'scores' && left)  left.classList.add('mobile-panel-active');
   if (tab === 'chat'   && right) right.classList.add('mobile-panel-active');
 
-  // If switching to chat, auto-scroll to latest message
   if (tab === 'chat') {
     const box = document.getElementById('chat-messages');
     if (box) setTimeout(() => box.scrollTop = box.scrollHeight, 50);
+  }
+
+  // When returning to canvas tab, replay the draw history so the board
+  // is never blank after the user has been typing or viewing scores.
+  if (tab === 'canvas' && canvas && ctx && socket) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    socket.emit('request-history');
   }
 }
 
